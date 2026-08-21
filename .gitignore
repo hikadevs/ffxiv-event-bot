@@ -1,0 +1,32 @@
+# Environment Variables/ Secrets
+.env
+
+# Python Virtual Environment
+.venv/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+
+# Test/Cache Files
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+
+# Operating System
+.DS_Store
+
+# Local databases
+*.sqlite3
+*.db
+*.sqlite
+
+# Logs
+*.log

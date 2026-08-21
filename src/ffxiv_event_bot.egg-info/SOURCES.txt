@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+src/ffxiv_event_bot.egg-info/PKG-INFO
+src/ffxiv_event_bot.egg-info/SOURCES.txt
+src/ffxiv_event_bot.egg-info/dependency_links.txt
+src/ffxiv_event_bot.egg-info/requires.txt
+src/ffxiv_event_bot.egg-info/top_level.txt
+src/xivbot/__init__.py
+src/xivbot/bot.py
+src/xivbot/config.py

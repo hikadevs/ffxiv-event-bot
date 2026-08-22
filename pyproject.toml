@@ -13,5 +13,8 @@ dependencies = [
     "python-dotenv",
 ]
 
+[project.scripts]
+xivbot = "xivbot.__main__:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

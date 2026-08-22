@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: ffxiv-event-bot
-Version: 0.1.0
-Summary: A Discord bot for FFXIV character profiles, event signups, and raid scheduling.
-Requires-Python: >=3.11
-Requires-Dist: discord.py
-Requires-Dist: python-dotenv

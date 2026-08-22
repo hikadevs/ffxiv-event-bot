@@ -2,11 +2,15 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# Creating a group of Discord functions that can be used as commands in the bot. This is a cog, which is a way to organize commands and events in a Discord bot.
 
 class General(commands.Cog):
     """General commands for the bot."""
 
     def __init__(self, bot: commands.Bot) -> None:
+
+#Stores Reference to the bot instance for use in the cog's commands and events.
+
         self.bot = bot
 
     @app_commands.command(

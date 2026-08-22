@@ -1,5 +1,7 @@
 import logging
 
+import aiohttp
+
 import discord
 from discord.ext import commands
 
@@ -25,22 +27,40 @@ class XIVEventBot(commands.Bot):
 
         self.settings = settings
 
+#Adding aiohttp client session to the bot class so we can use it for making HTTP requests later
+
+        self.html_session: aiohttp.ClientSession | None = None
+
 
 
 #setup_hook asynconously sets up the bots commands after login but before WebSocket events.
 
     async def setup_hook(self) -> None:
+        self.html_session = aiohttp.ClientSession()
+
+# Loading Cog before syncing commands to ensure that all commands are registered and available for use.
+
         await self.load_extension("xivbot.cogs.general")
+        await self.load_extension("xivbot.cogs.character")
 
         test_guild = discord.Object(id=self.settings.test_guild_id)
 
         self.tree.copy_global_to(guild=test_guild)
+        prepared = self.tree.get_commands(guild=test_guild)
+        logger.info(
+            "Prepared guild commands: %s",
+            [command.qualified_name for command in prepared],
+        )
         synced = await self.tree.sync(guild=test_guild)
 
 #await involves waiting and allows Python to asynchronously run other functions while not slowing down the program.
 
         logger.info(
-            "Synced %s command(s) to test guild %s.",
+            "Discord returned guild commands: %s",
+            [command.name for command in synced],
+        )
+        logger.info(
+            "Synced %s top-level command(s) to test guild %s.",
             len(synced),
             self.settings.test_guild_id,
         )
@@ -57,6 +77,7 @@ class XIVEventBot(commands.Bot):
             self.user.id,
             )
 
+# Added Error Handler to catch any errors that occur during command execution and log them for debugging purposes. This helps in identifying issues with the bot's commands and provides feedback to the user when an error occurs.
 
     async def on_tree_error(
         self,
@@ -81,6 +102,13 @@ class XIVEventBot(commands.Bot):
                 ephemeral=True,
             )
 
+# Closing the aiohttp client session when the bot is shutting down to free up resources and prevent memory leaks. This ensures that any open connections are properly closed and cleaned up before the bot exits.
+
+async def close(self) -> None:
+    if self.html_session is not None:
+        await self.html_session.close()
+
+    await super().close()
 
 def create_bot(settings: Settings) -> XIVEventBot:
     bot = XIVEventBot(settings)

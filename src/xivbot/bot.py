@@ -30,6 +30,8 @@ class XIVEventBot(commands.Bot):
 #setup_hook asynconously sets up the bots commands after login but before WebSocket events.
 
     async def setup_hook(self) -> None:
+        await self.load_extension("xivbot.cogs.general")
+
         test_guild = discord.Object(id=self.settings.test_guild_id)
 
         self.tree.copy_global_to(guild=test_guild)
@@ -56,18 +58,30 @@ class XIVEventBot(commands.Bot):
             )
 
 
-def create_bot(settings: Settings) -> XIVEventBot:
-    bot = XIVEventBot(settings)
-
-    @bot.tree.command(
-        name="ping",
-        description="Check if the bot is responsive.",
-    )
-    async def ping(interaction: discord.Interaction) -> None:
-        latency_ms = round(bot.latency * 1000)
-
-        await interaction.response.send_message(
-            f"Pong! Latency: {latency_ms}ms",
+    async def on_tree_error(
+        self,
+        interaction: discord.Interaction,
+        error: discord.app_commands.AppCommandError,
+    ) -> None:
+        logger.exception(
+            "Application command failed.",
+            exc_info=error,
         )
 
+        message = "An error occurred while processing the command."
+
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                message,
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                message,
+                ephemeral=True,
+            )
+
+
+def create_bot(settings: Settings) -> XIVEventBot:
+    bot = XIVEventBot(settings)
     return bot

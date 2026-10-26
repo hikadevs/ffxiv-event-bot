@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 
 from .config import Settings
+from .database import Database
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,10 @@ class XIVEventBot(commands.Bot):
 
         self.settings = settings
 
+#Adding a database connection to the bot class so we can use it for storing and retrieving data later
+
+        self.database = Database(settings.database_url)
+
 #Adding aiohttp client session to the bot class so we can use it for making HTTP requests later
 
         self.html_session: aiohttp.ClientSession | None = None
@@ -37,6 +42,10 @@ class XIVEventBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         self.html_session = aiohttp.ClientSession()
+
+# Connecting to the database before syncing commands to ensure that the bot has access to any necessary data during command execution.
+
+        await self.database.connect()
 
 # Loading Cog before syncing commands to ensure that all commands are registered and available for use.
 
@@ -104,6 +113,8 @@ class XIVEventBot(commands.Bot):
 
 # Closing the aiohttp client session when the bot is shutting down to free up resources and prevent memory leaks. This ensures that any open connections are properly closed and cleaned up before the bot exits.
     async def close(self) -> None:
+        await self.database.close()
+        
         if self.html_session is not None:
             await self.html_session.close()
 

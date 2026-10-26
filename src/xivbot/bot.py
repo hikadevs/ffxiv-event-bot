@@ -103,12 +103,11 @@ class XIVEventBot(commands.Bot):
             )
 
 # Closing the aiohttp client session when the bot is shutting down to free up resources and prevent memory leaks. This ensures that any open connections are properly closed and cleaned up before the bot exits.
+    async def close(self) -> None:
+        if self.html_session is not None:
+            await self.html_session.close()
 
-async def close(self) -> None:
-    if self.html_session is not None:
-        await self.html_session.close()
-
-    await super().close()
+        await super().close()
 
 def create_bot(settings: Settings) -> XIVEventBot:
     bot = XIVEventBot(settings)

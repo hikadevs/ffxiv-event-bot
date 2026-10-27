@@ -141,3 +141,105 @@ async def test_search_character_raises_on_network_error() -> None:
 
     with pytest.raises(LodestoneError):
         await client.search_character("Test Character")
+
+def test_parse_character_profile() -> None:
+    html = """
+    <html>
+        <body>
+            <p class="frame__chara__name">Hikaru Kiryuu</p>
+            <p class="frame__chara__world">Zalera [Crystal]</p>
+
+            <div class="character__detail__image">
+                <img src="https://example.com/hikaru.jpg">
+            </div>
+        <div class="character-block__box">
+            <p class="character-block__title">Race/Clan/Gender</p>
+    <p class="character-block__name">
+        Au Ra<br>
+        Raen / ♀
+    </p>
+</div>
+<div class="character-block__box">
+    <p class="character-block__title">Nameday</p>
+    <p class="character-block__birth">
+        15th Sun of the 3rd Umbral Moon
+    </p>
+
+    <p class="character-block__title">Guardian</p>
+    <p class="character-block__name">
+        Llymlaen, the Navigator
+    </p>
+</div>
+    <div class="character-block__box">
+    <p class="character-block__title">City-state</p>
+    <p class="character-block__name">
+        Gridania
+    </p>
+</div>
+
+<div class="character-block__box">
+    <p class="character-block__title">Grand Company</p>
+    <p class="character-block__name">
+        Order of the Twin Adder / Serpent Captain
+    </p>
+</div>
+        </body>
+    </html>
+    """
+
+    client = LodestoneClient(Mock())
+
+    profile = client._parse_character_profile(
+        12345678,
+        html,
+    )
+
+    assert profile.lodestone_id == 12345678
+    assert profile.name == "Hikaru Kiryuu"
+    assert profile.world == "Zalera"
+    assert profile.data_center == "Crystal"
+    assert profile.portrait_url == "https://example.com/hikaru.jpg"
+
+    assert profile.race == "Au Ra"
+    assert profile.clan == "Raen"
+    assert profile.gender == "Female"
+    assert profile.nameday == "15th Sun of the 3rd Umbral Moon"
+    assert profile.guardian == "Llymlaen, the Navigator"
+    assert profile.city_state == "Gridania"
+    assert profile.grand_company == "Order of the Twin Adder / Serpent Captain"
+
+@pytest.mark.asyncio
+async def test_get_character_profile() -> None:
+    html = """
+    <html>
+        <body>
+            <p class="frame__chara__name">Hikaru Kiryuu</p>
+            <p class="frame__chara__world">Zalera [Crystal]</p>
+
+            <div class="character__detail__image">
+                <img src="https://example.com/hikaru.jpg">
+            </div>
+        </body>
+    </html>
+    """
+
+    response = MagicMock()
+    response.status = 200
+    response.text = AsyncMock(return_value=html)
+
+    context_manager = MagicMock()
+    context_manager.__aenter__ = AsyncMock(return_value=response)
+    context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    session = Mock()
+    session.get.return_value = context_manager
+
+    client = LodestoneClient(session)
+
+    profile = await client.get_character_profile(12345678)
+
+    assert profile.lodestone_id == 12345678
+    assert profile.name == "Hikaru Kiryuu"
+    assert profile.world == "Zalera"
+    assert profile.data_center == "Crystal"
+    assert profile.portrait_url == "https://example.com/hikaru.jpg"

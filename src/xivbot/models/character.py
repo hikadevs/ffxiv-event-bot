@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-# Converting Lodestone character search results into a dataclass for easier handling and manipulation of the data. This allows for better organization and access to the character's information, such as their ID, name, world, data center, and profile URL.
+# Represents a character returned by the Lodestone search page.
 @dataclass(frozen=True)
 class CharacterSearchResult:
     lodestone_id: int
@@ -8,3 +8,20 @@ class CharacterSearchResult:
     world: str
     data_center: str
     profile_url: str
+
+
+# Represents detailed information from an individual Lodestone character page.
+@dataclass(frozen=True)
+class CharacterProfile:
+    lodestone_id: int
+    name: str
+    world: str
+    data_center: str
+    race: str
+    clan: str
+    gender: str
+    nameday: str
+    guardian: str
+    city_state: str | None
+    grand_company: str | None
+    portrait_url: str | None

@@ -4,7 +4,10 @@ from urllib.parse import urlencode
 import aiohttp
 from bs4 import BeautifulSoup
 
-from xivbot.models.character import CharacterSearchResult
+from xivbot.models.character import (
+    CharacterProfile,
+    CharacterSearchResult,
+)
 
 
 
@@ -25,6 +28,7 @@ class LodestoneClient:
             self,
             name: str,
     ) -> list[CharacterSearchResult]:
+        
 
  # Builds the URL for the Lodestone character search query using the provided name and encodes it as a query string. The search_type parameter is set to "character" to specify that we are searching for characters.      
         query = urlencode(
@@ -53,6 +57,32 @@ class LodestoneClient:
             ) from exc
 
         return self._parse_search_results(html)
+
+    async def get_character_profile(
+        self,
+        lodestone_id: int,
+    ) -> CharacterProfile:
+        url = f"{self.BASE_URL}/lodestone/character/{lodestone_id}/"
+
+        try:
+            async with self.session.get(url) as response:
+                if response.status != 200:
+                    raise LodestoneError(
+                        f"Lodestone returned HTTP {response.status} "
+                        f"for character {lodestone_id}."
+                    )
+
+                html = await response.text()
+
+        except aiohttp.ClientError as exc:
+            raise LodestoneError(
+                f"Failed to connect to Lodestone for character {lodestone_id}."
+            ) from exc
+
+        return self._parse_character_profile(
+            lodestone_id,
+            html,
+        )
 
 
     def _parse_search_results(
@@ -120,6 +150,153 @@ class LodestoneClient:
                 )
             )
         return results
+
+    def _parse_character_profile(
+        self,
+        lodestone_id: int,
+        html: str,
+    ) -> CharacterProfile:
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Character name and home world
+        name_element = soup.select_one(".frame__chara__name")
+        world_element = soup.select_one(".frame__chara__world")
+
+        if name_element is None or world_element is None:
+            raise LodestoneError(
+                f"Could not parse character profile {lodestone_id}."
+            )
+
+        name = name_element.get_text(
+            " ",
+            strip=True,
+        )
+
+        world_text = world_element.get_text(
+            " ",
+            strip=True,
+        )
+
+        world, data_center = self._parse_world(world_text)
+
+        # Character portrait
+        portrait_element = soup.select_one(
+            ".character__detail__image img"
+        )
+
+        portrait_url: str | None = None
+
+        if portrait_element is not None:
+            src = portrait_element.get("src")
+
+            if isinstance(src, str):
+                portrait_url = src
+
+        # Default values in case Lodestone does not provide a field
+        race = "Unknown"
+        clan = "Unknown"
+        gender = "Unknown"
+        nameday = "Unknown"
+        guardian = "Unknown"
+        city_state: str | None = None
+        grand_company: str | None = None
+
+        # Look through the profile information blocks
+        for block in soup.select(".character-block__box"):
+            titles = block.select(".character-block__title")
+
+            for title in titles:
+                label = title.get_text(
+                    " ",
+                    strip=True,
+                )
+
+                if label == "Race/Clan/Gender":
+                    value = block.select_one(
+                        ".character-block__name"
+                    )
+
+                    if value is not None:
+                        parts = list(value.stripped_strings)
+
+                        if len(parts) >= 2:
+                            race = parts[0]
+
+                            clan_gender = parts[1].rsplit(
+                                " / ",
+                                1,
+                            )
+
+                            clan = clan_gender[0]
+
+                            if len(clan_gender) == 2:
+                                gender_symbol = clan_gender[1]
+
+                                if gender_symbol == "♀":
+                                    gender = "Female"
+                                elif gender_symbol == "♂":
+                                    gender = "Male"
+                                else:
+                                    gender = gender_symbol
+
+                elif label == "Nameday":
+                    value = title.find_next_sibling(
+                        class_="character-block__birth"
+                    )
+
+                    if value is not None:
+                        nameday = value.get_text(
+                            " ",
+                            strip=True,
+                        )
+
+                elif label == "Guardian":
+                    value = title.find_next_sibling(
+                        class_="character-block__name"
+                    )
+
+                    if value is not None:
+                        guardian = value.get_text(
+                            " ",
+                            strip=True,
+                        )
+
+                elif label == "City-state":
+                    value = title.find_next_sibling(
+                        class_="character-block__name"
+                    )
+
+                    if value is not None:
+                        city_state = value.get_text(
+                            " ",
+                            strip=True,
+                        )
+
+                elif label == "Grand Company":
+                    value = title.find_next_sibling(
+                        class_="character-block__name"
+                    )
+
+                    if value is not None:
+                        grand_company = value.get_text(
+                            " ",
+                            strip=True,
+                        )
+
+        return CharacterProfile(
+            lodestone_id=lodestone_id,
+            name=name,
+            world=world,
+            data_center=data_center,
+            race=race,
+            clan=clan,
+            gender=gender,
+            nameday=nameday,
+            guardian=guardian,
+            city_state=city_state,
+            grand_company=grand_company,
+            portrait_url=portrait_url,
+        )
 
     @staticmethod
     def _parse_world(world_text: str) -> tuple[str, str]:

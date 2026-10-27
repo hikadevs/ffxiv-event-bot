@@ -37,6 +37,8 @@ async def test_create_tables_creates_events_table() -> None:
         "CREATE TABLE IF NOT EXISTS event_signups" in sql
         for sql in executed_sql
     )
+    assert any("ADD COLUMN IF NOT EXISTS post_channel_id" in sql for sql in executed_sql)
+    assert any("ADD COLUMN IF NOT EXISTS post_message_id" in sql for sql in executed_sql)
 
 
 @pytest.mark.asyncio
@@ -96,3 +98,46 @@ async def test_get_event_fetches_by_id() -> None:
 
     assert "FROM events" in pool.fetchrow.await_args.args[0]
     assert pool.fetchrow.await_args.args[1] == 42
+
+
+@pytest.mark.asyncio
+async def test_leave_event_deletes_user_signup() -> None:
+    database = Database("postgresql://unused")
+    connection = AsyncMock()
+    connection.fetchrow.return_value = {"event_id": 42}
+    connection.execute.return_value = "DELETE 1"
+    connection.transaction = lambda: AsyncContext(None)
+    database.pool = SimpleNamespace(
+        acquire=lambda: AsyncContext(connection),
+    )
+
+    result = await database.leave_event(42, 123)
+
+    assert result == "left"
+    assert "DELETE FROM event_signups" in connection.execute.await_args.args[0]
+    assert connection.execute.await_args.args[1:] == (42, 123)
+
+
+@pytest.mark.asyncio
+async def test_leave_event_reports_when_user_is_not_signed_up() -> None:
+    database = Database("postgresql://unused")
+    connection = AsyncMock()
+    connection.fetchrow.return_value = {"event_id": 42}
+    connection.execute.return_value = "DELETE 0"
+    connection.transaction = lambda: AsyncContext(None)
+    database.pool = SimpleNamespace(
+        acquire=lambda: AsyncContext(connection),
+    )
+
+    assert await database.leave_event(42, 123) == "not_signed_up"
+
+
+@pytest.mark.asyncio
+async def test_get_published_events_returns_saved_message_ids() -> None:
+    database = Database("postgresql://unused")
+    pool = AsyncMock()
+    database.pool = pool
+
+    await database.get_published_events()
+
+    assert "WHERE post_message_id IS NOT NULL" in pool.fetch.await_args.args[0]

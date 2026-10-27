@@ -49,25 +49,33 @@ commands are synced to `TEST_GUILD_ID`.
   Discord account.
 - `/character me` displays your linked character profile and jobs.
 - `/character unlink` removes your character link.
-- `/event create` creates an event. Role slots are optional, but the total
-  number of slots cannot exceed 24. Minimum job level can be set from 1 to 100.
-- `/event join` signs up for an available role slot using your linked
-  character.
+- `/event create` walks you through an event's details, start time, and group
+  setup, then lets you review and confirm it. Role slots are optional, but the
+  event is posted in the channel where you ran the command. The total number
+  of slots cannot exceed 24. Minimum job level can be set from 1 to 100.
+- The event post shows the event details, roster, and remaining slots.
+  **Details**, **Join**, and **Leave** buttons let members review the event,
+  sign up, or drop their signup. Joining uses a job from a linked character.
+- `/event join` can also sign up for an event using a linked character.
+- `/event leave` leaves an event you can no longer attend.
 - `/event roster` displays the event's role capacity and signups.
 
 ## Event Times
 
-For `/event create`, enter the start time as `YYYY-MM-DD HH:MM` in the creator's
-local time and provide its IANA timezone (for example, `America/New_York`). The
-bot stores the event as an absolute UTC time and uses Discord's timestamp
-formatting, so each viewer sees the event time in their own local timezone.
-Local times that do not exist or occur twice because of a daylight-saving
-transition are rejected; choose an unambiguous local time instead.
+During the `/event create` walkthrough, enter the start time as
+`YYYY-MM-DD HH:MM` in your local time and provide its IANA timezone (for
+example, `America/New_York`). The bot stores the event as an absolute UTC time
+and uses Discord's timestamp formatting, so each viewer sees the event time in
+their own local timezone. Local times that do not exist or occur twice because
+of a daylight-saving transition are rejected; choose an unambiguous local time
+instead.
 
 ## Event Role Signups
 
-Each player can hold one role per event. The roster is posted publicly in the
-server, while event creation and signup responses are private to the user.
+Each player can hold one role per event. The roster is posted publicly with
+the event, including each signup's character, world, job, and level. The event
+post updates as members join and leave, while signup confirmations are private
+to the user.
 
 ## Tech Stack
 

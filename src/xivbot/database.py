@@ -10,6 +10,7 @@ SignupResult = Literal[
     "role_unavailable",
     "full",
 ]
+LeaveResult = Literal["left", "not_signed_up", "event_missing"]
 
 
 class Database:
@@ -60,6 +61,20 @@ class Database:
             ALTER TABLE events
             ADD COLUMN IF NOT EXISTS min_job_level INTEGER NOT NULL DEFAULT 1
                 CHECK (min_job_level BETWEEN 1 AND 100);
+            """
+        )
+
+        await self.pool.execute(
+            """
+            ALTER TABLE events
+            ADD COLUMN IF NOT EXISTS post_channel_id BIGINT;
+            """
+        )
+
+        await self.pool.execute(
+            """
+            ALTER TABLE events
+            ADD COLUMN IF NOT EXISTS post_message_id BIGINT;
             """
         )
 
@@ -263,11 +278,47 @@ class Database:
                 description,
                 min_job_level,
                 status,
-                created_at
+                created_at,
+                post_channel_id,
+                post_message_id
             FROM events
             WHERE event_id = $1;
             """,
             event_id,
+        )
+
+    async def set_event_post(
+        self,
+        event_id: int,
+        channel_id: int,
+        message_id: int,
+    ) -> None:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        result = await self.pool.execute(
+            """
+            UPDATE events
+            SET post_channel_id = $2, post_message_id = $3
+            WHERE event_id = $1;
+            """,
+            event_id,
+            channel_id,
+            message_id,
+        )
+        if result != "UPDATE 1":
+            raise RuntimeError(f"Event {event_id} was not found.")
+
+    async def get_published_events(self) -> list[asyncpg.Record]:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        return await self.pool.fetch(
+            """
+            SELECT event_id, post_message_id
+            FROM events
+            WHERE post_message_id IS NOT NULL;
+            """
         )
 
     async def get_event_roles(
@@ -409,3 +460,35 @@ class Database:
             """,
             event_id,
         )
+
+    async def leave_event(
+        self,
+        event_id: int,
+        discord_user_id: int,
+    ) -> LeaveResult:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        async with self.pool.acquire() as connection:
+            async with connection.transaction():
+                event_record = await connection.fetchrow(
+                    """
+                    SELECT event_id
+                    FROM events
+                    WHERE event_id = $1
+                    FOR UPDATE;
+                    """,
+                    event_id,
+                )
+                if event_record is None:
+                    return "event_missing"
+
+                result = await connection.execute(
+                    """
+                    DELETE FROM event_signups
+                    WHERE event_id = $1 AND discord_user_id = $2;
+                    """,
+                    event_id,
+                    discord_user_id,
+                )
+                return "left" if result == "DELETE 1" else "not_signed_up"

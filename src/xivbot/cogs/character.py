@@ -80,5 +80,123 @@ class Character(
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="link",
+        description="Link your Discord account to an FFXIV character.",
+    )
+    @app_commands.describe(
+        name="The character's full name.",
+    )
+    async def link(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+    ) -> None:
+        await interaction.response.defer(
+            thinking=True,
+            ephemeral=True,
+        )
+
+        session = getattr(
+            self.bot,
+            "html_session",
+            None,
+        )
+
+        if session is None:
+            await interaction.followup.send(
+                "The bot is not ready to handle requests yet. Please try again later.",
+                ephemeral=True,
+            )
+            return
+
+        database = getattr(
+            self.bot,
+            "database",
+            None,
+        )
+
+        if database is None:
+            await interaction.followup.send(
+                "The database is not available. Please try again later.",
+                ephemeral=True,
+            )
+            return
+
+        lodestone = LodestoneClient(session)
+
+        try:
+            results = await lodestone.search_character(name)
+        except LodestoneError:
+            await interaction.followup.send(
+                "An error occurred while searching for the character. Please try again later.",
+                ephemeral=True,
+            )
+            return
+
+        if not results:
+            await interaction.followup.send(
+                f"No characters found for '{name}'.",
+                ephemeral=True,
+            )
+            return
+
+        character = results[0]
+
+        await database.save_character_link(
+            discord_user_id=interaction.user.id,
+            lodestone_id=character.lodestone_id,
+            character_name=character.name,
+            world=character.world,
+            data_center=character.data_center,
+        )
+
+        await interaction.followup.send(
+            f"Linked your Discord account to "
+            f"**{character.name}** - "
+            f"{character.world} [{character.data_center}].",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="me",
+        description="Show your linked FFXIV character.",
+    )
+    async def me(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        database = getattr(
+            self.bot,
+            "database",
+            None,
+        )
+
+        if database is None:
+            await interaction.response.send_message(
+                "The database is not available. Please try again later.",
+                ephemeral=True,
+            )
+            return
+
+        character = await database.get_character_link(
+            interaction.user.id
+        )
+
+        if character is None:
+            await interaction.response.send_message(
+                "You do not have a linked FFXIV character yet. "
+                "Use `/character link` first.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(
+            f"Your linked character is "
+            f"**{character['character_name']}** - "
+            f"{character['world']} [{character['data_center']}].",
+            ephemeral=True,
+        )
+
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Character(bot))

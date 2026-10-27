@@ -46,6 +46,7 @@ class XIVEventBot(commands.Bot):
 # Connecting to the database before syncing commands to ensure that the bot has access to any necessary data during command execution.
 
         await self.database.connect()
+        await self.database.create_tables()
 
 # Loading Cog before syncing commands to ensure that all commands are registered and available for use.
 
@@ -114,7 +115,7 @@ class XIVEventBot(commands.Bot):
 # Closing the aiohttp client session when the bot is shutting down to free up resources and prevent memory leaks. This ensures that any open connections are properly closed and cleaned up before the bot exits.
     async def close(self) -> None:
         await self.database.close()
-        
+
         if self.html_session is not None:
             await self.html_session.close()
 

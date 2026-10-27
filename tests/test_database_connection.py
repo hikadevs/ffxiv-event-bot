@@ -120,3 +120,63 @@ async def test_get_character_link_returns_none_for_unknown_user() -> None:
 
     finally:
         await database.close()
+
+@pytest.mark.asyncio
+async def test_delete_character_link() -> None:
+    database_url = os.getenv("DATABASE_URL")
+
+    if not database_url:
+        pytest.skip("DATABASE_URL is not configured.")
+
+    database = Database(database_url)
+
+    try:
+        await database.connect()
+        await database.create_tables()
+
+        discord_user_id = 777777777
+
+        await database.save_character_link(
+            discord_user_id=discord_user_id,
+            lodestone_id=123456789,
+            character_name="Delete Test",
+            world="Zalera",
+            data_center="Crystal",
+        )
+
+        deleted = await database.delete_character_link(
+            discord_user_id
+        )
+
+        assert deleted is True
+
+        character = await database.get_character_link(
+            discord_user_id
+        )
+
+        assert character is None
+
+    finally:
+        await database.close()
+
+@pytest.mark.asyncio
+async def test_delete_unknown_character_link_returns_false() -> None:
+    database_url = os.getenv("DATABASE_URL")
+
+    if not database_url:
+        pytest.skip("DATABASE_URL is not configured.")
+
+    database = Database(database_url)
+
+    try:
+        await database.connect()
+        await database.create_tables()
+
+        deleted = await database.delete_character_link(
+            999999999999999998
+        )
+
+        assert deleted is False
+
+    finally:
+        await database.close()

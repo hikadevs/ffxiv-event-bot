@@ -142,6 +142,51 @@ async def test_search_character_raises_on_network_error() -> None:
     with pytest.raises(LodestoneError):
         await client.search_character("Test Character")
 
+def test_parse_character_jobs() -> None:
+    html = """
+    <div class="character__job">
+        <p class="character__job__name">Paladin</p>
+        <p class="character__job__level">100</p>
+    </div>
+    <div class="character__job">
+        <p class="character__job__name">Unknown Level Job</p>
+        <p class="character__job__level">--</p>
+    </div>
+    <div class="character__job">
+        <p class="character__job__name">Incomplete Job</p>
+    </div>
+    """
+
+    client = LodestoneClient(Mock())
+
+    jobs = client._parse_character_jobs(html)
+
+    assert len(jobs) == 2
+    assert jobs[0].name == "Paladin"
+    assert jobs[0].level == 100
+    assert jobs[0].category == "Tank"
+    assert jobs[1].name == "Unknown Level Job"
+    assert jobs[1].level is None
+    assert jobs[1].category == "Unknown"
+
+
+@pytest.mark.parametrize(
+    ("name", "category"),
+    [
+        ("White Mage", "Healer"),
+        ("Dragoon", "Melee DPS"),
+        ("Bard", "Physical Ranged DPS"),
+        ("Black Mage", "Magical Ranged DPS"),
+        ("Blue Mage", "Limited Job"),
+        ("Carpenter", "Crafter"),
+        ("Miner", "Gatherer"),
+        ("Unknown Job", "Unknown"),
+    ],
+)
+def test_get_job_category(name: str, category: str) -> None:
+    assert LodestoneClient._get_job_category(name) == category
+
+
 def test_parse_character_profile() -> None:
     html = """
     <html>
@@ -243,3 +288,77 @@ async def test_get_character_profile() -> None:
     assert profile.world == "Zalera"
     assert profile.data_center == "Crystal"
     assert profile.portrait_url == "https://example.com/hikaru.jpg"
+
+def test_parse_character_jobs() -> None:
+    html = """
+    <html>
+        <body>
+            <div class="character__job">
+                <p class="character__job__name">Dark Knight</p>
+                <p class="character__job__level">100</p>
+            </div>
+
+            <div class="character__job">
+                <p class="character__job__name">Paladin</p>
+                <p class="character__job__level">-</p>
+            </div>
+        </body>
+    </html>
+    """
+
+    client = LodestoneClient(Mock())
+
+    jobs = client._parse_character_jobs(html)
+
+    assert len(jobs) == 2
+
+    assert jobs[0].name == "Dark Knight"
+    assert jobs[0].level == 100
+    assert jobs[0].category == "Tank"
+
+    assert jobs[1].name == "Paladin"
+    assert jobs[1].level is None
+    assert jobs[1].category == "Tank"
+
+@pytest.mark.asyncio
+async def test_get_character_jobs() -> None:
+    html = """
+    <html>
+        <body>
+            <ul class="character__job">
+                <li>
+                    <div class="character__job__name">Dark Knight</div>
+                    <div class="character__job__level">100</div>
+                </li>
+
+                <li>
+                    <div class="character__job__name">Paladin</div>
+                    <div class="character__job__level">-</div>
+                </li>
+            </ul>
+        </body>
+    </html>
+    """
+
+    response = MagicMock()
+    response.status = 200
+    response.text = AsyncMock(return_value=html)
+
+    context_manager = MagicMock()
+    context_manager.__aenter__ = AsyncMock(return_value=response)
+    context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    session = Mock()
+    session.get.return_value = context_manager
+
+    client = LodestoneClient(session)
+
+    jobs = await client.get_character_jobs(12345678)
+
+    assert len(jobs) == 2
+
+    assert jobs[0].name == "Dark Knight"
+    assert jobs[0].level == 100
+
+    assert jobs[1].name == "Paladin"
+    assert jobs[1].level is None

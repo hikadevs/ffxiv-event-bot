@@ -95,3 +95,20 @@ class Database:
             """,
             discord_user_id,
         )
+
+    async def delete_character_link(
+        self,
+        discord_user_id: int,
+    ) -> bool:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        result = await self.pool.execute(
+            """
+            DELETE FROM character_links
+            WHERE discord_user_id = $1;
+            """,
+            discord_user_id,
+        )
+
+        return result == "DELETE 1"

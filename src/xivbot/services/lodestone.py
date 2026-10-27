@@ -5,6 +5,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from xivbot.models.character import (
+    CharacterJob,
     CharacterProfile,
     CharacterSearchResult,
 )
@@ -25,28 +26,24 @@ class LodestoneClient:
         self.session = session
 
     async def search_character(
-            self,
-            name: str,
+        self,
+        name: str,
     ) -> list[CharacterSearchResult]:
-        
-
- # Builds the URL for the Lodestone character search query using the provided name and encodes it as a query string. The search_type parameter is set to "character" to specify that we are searching for characters.      
         query = urlencode(
             {
                 "q": name,
                 "search_type": "character",
-                }
-            )
+            }
+        )
 
         url = f"{self.BASE_URL}/lodestone/character/?{query}"
 
         try:
-
-# checks the response status code to ensure that the request was successful (HTTP 200 OK). If the status code is not 200, it raises a LodestoneError with a message indicating the failure. It then reads the response content as text for further processing.
             async with self.session.get(url) as response:
                 if response.status != 200:
                     raise LodestoneError(
-                        f"Lodestone returned HTTP {response.status} for search query '{name}'."
+                        f"Lodestone returned HTTP {response.status} "
+                        f"for search query '{name}'."
                     )
 
                 html = await response.text()
@@ -84,11 +81,38 @@ class LodestoneClient:
             html,
         )
 
+    async def get_character_jobs(
+        self,
+        lodestone_id: int,
+    ) -> list[CharacterJob]:
+        url = (
+            f"{self.BASE_URL}/lodestone/character/"
+            f"{lodestone_id}/class_job/"
+        )
+
+        try:
+            async with self.session.get(url) as response:
+                if response.status != 200:
+                    raise LodestoneError(
+                        f"Lodestone returned HTTP {response.status} "
+                        f"for character jobs {lodestone_id}."
+                    )
+
+                html = await response.text()
+
+        except aiohttp.ClientError as exc:
+            raise LodestoneError(
+                f"Failed to connect to Lodestone for "
+                f"character jobs {lodestone_id}."
+            ) from exc
+
+        return self._parse_character_jobs(html)
+
 
     def _parse_search_results(
-            self,
-            html: str,
-        ) -> list[CharacterSearchResult]:
+        self,
+        html: str,
+    ) -> list[CharacterSearchResult]:
 
 # Turning raw HTML content into a BeautifulSoup object for easier parsing and extraction of relevant data. The "html.parser" is used to parse the HTML content.
         soup = BeautifulSoup(html, "html.parser")
@@ -297,6 +321,151 @@ class LodestoneClient:
             grand_company=grand_company,
             portrait_url=portrait_url,
         )
+
+    def _parse_character_jobs(
+        self,
+        html: str,
+    ) -> list[CharacterJob]:
+        soup = BeautifulSoup(html, "html.parser")
+
+        jobs: list[CharacterJob] = []
+
+        items = soup.select(".character__job li")
+
+        if not items:
+            items = soup.select(".character__job")
+
+        for item in items:
+            name_element = item.select_one(
+                ".character__job__name"
+            )
+
+            level_element = item.select_one(
+                ".character__job__level"
+            )
+
+            if name_element is None or level_element is None:
+                continue
+
+            name = name_element.get_text(
+                " ",
+                strip=True,
+            )
+
+            level_text = level_element.get_text(
+                " ",
+                strip=True,
+            )
+
+            level: int | None = None
+
+            if level_text.isdigit():
+                level = int(level_text)
+
+            jobs.append(
+                CharacterJob(
+                    name=name,
+                    level=level,
+                    category=self._get_job_category(name),
+                )
+            )
+
+        return jobs
+
+    @staticmethod
+    def _get_job_category(name: str) -> str:
+        tanks = {
+            "Gladiator",
+            "Paladin",
+            "Marauder",
+            "Warrior",
+            "Dark Knight",
+            "Gunbreaker",
+        }
+
+        healers = {
+            "Conjurer",
+            "White Mage",
+            "Scholar",
+            "Astrologian",
+            "Sage",
+        }
+
+        melee_dps = {
+            "Pugilist",
+            "Monk",
+            "Lancer",
+            "Dragoon",
+            "Rogue",
+            "Ninja",
+            "Samurai",
+            "Reaper",
+            "Viper",
+        }
+
+        physical_ranged_dps = {
+            "Archer",
+            "Bard",
+            "Machinist",
+            "Dancer",
+        }
+
+        magical_ranged_dps = {
+            "Thaumaturge",
+            "Black Mage",
+            "Arcanist",
+            "Summoner",
+            "Red Mage",
+            "Pictomancer",
+        }
+
+        limited_jobs = {
+            "Blue Mage",
+            "Beastmaster",
+        }
+
+        crafters = {
+            "Carpenter",
+            "Blacksmith",
+            "Armorer",
+            "Goldsmith",
+            "Leatherworker",
+            "Weaver",
+            "Alchemist",
+            "Culinarian",
+        }
+
+        gatherers = {
+            "Miner",
+            "Botanist",
+            "Fisher",
+        }
+
+        if name in tanks:
+            return "Tank"
+
+        if name in healers:
+            return "Healer"
+
+        if name in melee_dps:
+            return "Melee DPS"
+
+        if name in physical_ranged_dps:
+            return "Physical Ranged DPS"
+
+        if name in magical_ranged_dps:
+            return "Magical Ranged DPS"
+
+        if name in limited_jobs:
+            return "Limited Job"
+
+        if name in crafters:
+            return "Crafter"
+
+        if name in gatherers:
+            return "Gatherer"
+
+        return "Unknown"
 
     @staticmethod
     def _parse_world(world_text: str) -> tuple[str, str]:

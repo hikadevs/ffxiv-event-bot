@@ -25,3 +25,10 @@ class CharacterProfile:
     city_state: str | None
     grand_company: str | None
     portrait_url: str | None
+
+# Setting up a Dataclass for Jobs and Levels, which will be used to represent the job and level information of a character.
+@dataclass(frozen=True)
+class CharacterJob:
+    name: str
+    level: int | None
+    category: str

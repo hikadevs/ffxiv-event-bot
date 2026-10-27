@@ -87,6 +87,7 @@ class EventDraft:
     channel_id: int
     title: str = ""
     description: str | None = None
+    timezone: str | None = None
     scheduled_at: datetime | None = None
     tank_slots: int = 0
     healer_slots: int = 0
@@ -124,6 +125,26 @@ class RetryModalView(EventWizardView):
 
     @discord.ui.button(label="Try again", style=discord.ButtonStyle.primary)
     async def retry(
+        self,
+        interaction: discord.Interaction,
+        _button: discord.ui.Button,
+    ) -> None:
+        await interaction.response.send_modal(self.modal_factory())
+
+
+class ContinueModalView(EventWizardView):
+    def __init__(
+        self,
+        user_id: int,
+        label: str,
+        modal_factory: Callable[[], discord.ui.Modal],
+    ) -> None:
+        super().__init__(user_id)
+        self.modal_factory = modal_factory
+        self.continue_button.label = label
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
+    async def continue_button(
         self,
         interaction: discord.Interaction,
         _button: discord.ui.Button,
@@ -180,21 +201,149 @@ class EventDetailsModal(discord.ui.Modal, title="Event details — Step 1 of 3")
 
         self.draft.title = title
         self.draft.description = self.event_description.value.strip() or None
+        await interaction.response.send_message(
+            "Event details saved. Choose the timezone for the event.",
+            ephemeral=True,
+            view=EventTimezoneView(self.event_cog, self.draft),
+        )
+
+
+TIMEZONE_CHOICES = [
+    ("UTC", "UTC"),
+    ("New York", "America/New_York"),
+    ("Chicago", "America/Chicago"),
+    ("Denver", "America/Denver"),
+    ("Los Angeles", "America/Los_Angeles"),
+    ("Anchorage", "America/Anchorage"),
+    ("Phoenix", "America/Phoenix"),
+    ("Toronto", "America/Toronto"),
+    ("Vancouver", "America/Vancouver"),
+    ("Sao Paulo", "America/Sao_Paulo"),
+    ("London", "Europe/London"),
+    ("Paris", "Europe/Paris"),
+    ("Berlin", "Europe/Berlin"),
+    ("Helsinki", "Europe/Helsinki"),
+    ("Moscow", "Europe/Moscow"),
+    ("Johannesburg", "Africa/Johannesburg"),
+    ("Dubai", "Asia/Dubai"),
+    ("Kolkata", "Asia/Kolkata"),
+    ("Bangkok", "Asia/Bangkok"),
+    ("Singapore", "Asia/Singapore"),
+    ("Tokyo", "Asia/Tokyo"),
+    ("Seoul", "Asia/Seoul"),
+    ("Shanghai", "Asia/Shanghai"),
+    ("Sydney", "Australia/Sydney"),
+]
+
+
+class EventTimezoneView(EventWizardView):
+    def __init__(self, event_cog: Event, draft: EventDraft) -> None:
+        super().__init__(draft.creator_id)
+        self.event_cog = event_cog
+        self.draft = draft
+        self.timezone_select = discord.ui.Select(
+            placeholder="Choose your timezone",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(label=label, value=timezone)
+                for label, timezone in TIMEZONE_CHOICES
+            ]
+            + [
+                discord.SelectOption(
+                    label="Other (enter an IANA timezone)",
+                    value="other",
+                )
+            ],
+        )
+        self.timezone_select.callback = self._select_timezone
+        self.add_item(self.timezone_select)
+
+        continue_button = discord.ui.Button(
+            label="Continue",
+            style=discord.ButtonStyle.primary,
+        )
+        continue_button.callback = self._continue
+        self.add_item(continue_button)
+
+    async def _select_timezone(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer()
+
+    async def _continue(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        if not self.timezone_select.values:
+            await interaction.response.send_message(
+                "Choose a timezone first.",
+                ephemeral=True,
+            )
+            return
+
+        selected_timezone = self.timezone_select.values[0]
+        if selected_timezone == "other":
+            await interaction.response.send_modal(
+                EventTimezoneModal(self.event_cog, self.draft)
+            )
+            return
+
+        self.draft.timezone = selected_timezone
         await interaction.response.send_modal(
             EventScheduleModal(self.event_cog, self.draft)
         )
 
 
-class EventScheduleModal(discord.ui.Modal, title="When is it? — Step 2 of 3"):
-    local_start = discord.ui.TextInput(
-        label="Local start time",
-        placeholder="YYYY-MM-DD HH:MM",
-        max_length=16,
-    )
+class EventTimezoneModal(
+    discord.ui.Modal,
+    title="Enter your timezone",
+):
     timezone = discord.ui.TextInput(
-        label="Your IANA timezone",
+        label="IANA timezone",
         placeholder="America/New_York",
         max_length=100,
+    )
+
+    def __init__(self, event_cog: Event, draft: EventDraft) -> None:
+        super().__init__()
+        self.event_cog = event_cog
+        self.draft = draft
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        timezone = self.timezone.value.strip()
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            await interaction.response.send_message(
+                "Invalid timezone. Use an IANA timezone such as "
+                "`America/New_York`.",
+                ephemeral=True,
+                view=RetryModalView(
+                    self.draft.creator_id,
+                    lambda: EventTimezoneModal(self.event_cog, self.draft),
+                ),
+            )
+            return
+
+        self.draft.timezone = timezone
+        await interaction.response.send_message(
+            "Timezone saved. Continue to enter the event's local start time.",
+            ephemeral=True,
+            view=ContinueModalView(
+                self.draft.creator_id,
+                "Set date and time",
+                lambda: EventScheduleModal(self.event_cog, self.draft),
+            ),
+        )
+
+
+class EventScheduleModal(discord.ui.Modal, title="When is it? — Step 2 of 3"):
+    local_start = discord.ui.TextInput(
+        label="Local start date and time",
+        placeholder="YYYY-MM-DD HH:MM",
+        max_length=16,
     )
 
     def __init__(
@@ -202,21 +351,26 @@ class EventScheduleModal(discord.ui.Modal, title="When is it? — Step 2 of 3"):
         event_cog: Event,
         draft: EventDraft,
         local_start: str | None = None,
-        timezone: str | None = None,
     ) -> None:
         super().__init__()
         self.event_cog = event_cog
         self.draft = draft
         if local_start is not None:
             self.local_start.default = local_start
-        if timezone is not None:
-            self.timezone.default = timezone
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        if self.draft.timezone is None:
+            await interaction.response.send_message(
+                "Choose a timezone before entering the start time.",
+                ephemeral=True,
+                view=EventTimezoneView(self.event_cog, self.draft),
+            )
+            return
+
         try:
             self.draft.scheduled_at = _parse_event_time(
                 self.local_start.value.strip(),
-                self.timezone.value.strip(),
+                self.draft.timezone,
             )
         except ValueError as error:
             await self._retry(
@@ -225,8 +379,14 @@ class EventScheduleModal(discord.ui.Modal, title="When is it? — Step 2 of 3"):
             )
             return
 
-        await interaction.response.send_modal(
-            EventSlotsModal(self.event_cog, self.draft)
+        await interaction.response.send_message(
+            "Schedule saved. Continue to configure group slots.",
+            ephemeral=True,
+            view=ContinueModalView(
+                self.draft.creator_id,
+                "Set group slots",
+                lambda: EventSlotsModal(self.event_cog, self.draft),
+            ),
         )
 
     async def _retry(
@@ -243,7 +403,6 @@ class EventScheduleModal(discord.ui.Modal, title="When is it? — Step 2 of 3"):
                     self.event_cog,
                     self.draft,
                     self.local_start.value,
-                    self.timezone.value,
                 ),
             ),
         )

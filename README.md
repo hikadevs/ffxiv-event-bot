@@ -62,12 +62,13 @@ commands are synced to `TEST_GUILD_ID`.
 
 ## Event Times
 
-During the `/event create` walkthrough, enter the start time as
-`YYYY-MM-DD HH:MM` in your local time and provide its IANA timezone (for
-example, `America/New_York`). The bot stores the event as an absolute UTC time
-and uses Discord's timestamp formatting, so each viewer sees the event time in
-their own local timezone. Local times that do not exist or occur twice because
-of a daylight-saving transition are rejected; choose an unambiguous local time
+During the `/event create` walkthrough, choose your timezone from the dropdown
+and enter the local start time as `YYYY-MM-DD HH:MM`. Common timezones are
+listed, with an option to enter any other IANA timezone (for example,
+`America/New_York`). The bot stores the event as an absolute UTC time and uses
+Discord's timestamp formatting, so each viewer sees the event time in their
+own local timezone. Local times that do not exist or occur twice because of a
+daylight-saving transition are rejected; choose an unambiguous local time
 instead.
 
 ## Event Role Signups

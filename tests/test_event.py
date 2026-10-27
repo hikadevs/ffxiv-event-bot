@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from xivbot.cogs.event import (
+    ContinueModalView,
     Event,
     EventConfirmationView,
     EventDetailsModal,
@@ -13,6 +14,8 @@ from xivbot.cogs.event import (
     EventSignupView,
     EventScheduleModal,
     EventSlotsModal,
+    EventTimezoneModal,
+    EventTimezoneView,
     RetryModalView,
     _parse_event_time,
 )
@@ -49,22 +52,44 @@ async def test_event_creation_walkthrough_collects_draft_and_requests_confirmati
     details.event_title._value = "Savage"
     details.event_description._value = "Bring food"
     details_interaction = SimpleNamespace(
-        response=SimpleNamespace(send_modal=AsyncMock()),
+        response=SimpleNamespace(send_message=AsyncMock()),
     )
 
     await details.on_submit(details_interaction)
-    schedule = details_interaction.response.send_modal.await_args.args[0]
+    details_view = details_interaction.response.send_message.await_args.kwargs[
+        "view"
+    ]
+    assert isinstance(details_view, EventTimezoneView)
+    assert details_view.timezone_select.options[0].value == "UTC"
+    assert details_view.timezone_select.options[-1].value == "other"
+    details_view.timezone_select._values = ["America/New_York"]
+    timezone_button_interaction = SimpleNamespace(
+        user=SimpleNamespace(id=456),
+        response=SimpleNamespace(send_modal=AsyncMock()),
+    )
+    await details_view.children[1].callback(timezone_button_interaction)
+    schedule = timezone_button_interaction.response.send_modal.await_args.args[0]
     assert isinstance(schedule, EventScheduleModal)
+    assert draft.timezone == "America/New_York"
     assert draft.title == "Savage"
     assert draft.description == "Bring food"
 
     schedule.local_start._value = "2026-10-30 20:00"
-    schedule.timezone._value = "America/New_York"
     schedule_interaction = SimpleNamespace(
-        response=SimpleNamespace(send_modal=AsyncMock()),
+        response=SimpleNamespace(send_message=AsyncMock()),
     )
     await schedule.on_submit(schedule_interaction)
-    slots = schedule_interaction.response.send_modal.await_args.args[0]
+    schedule_view = schedule_interaction.response.send_message.await_args.kwargs[
+        "view"
+    ]
+    assert isinstance(schedule_view, ContinueModalView)
+    assert schedule_view.children[0].label == "Set group slots"
+    schedule_button_interaction = SimpleNamespace(
+        user=SimpleNamespace(id=456),
+        response=SimpleNamespace(send_modal=AsyncMock()),
+    )
+    await schedule_view.children[0].callback(schedule_button_interaction)
+    slots = schedule_button_interaction.response.send_modal.await_args.args[0]
     assert isinstance(slots, EventSlotsModal)
     assert draft.scheduled_at == datetime(
         2026,
@@ -117,6 +142,32 @@ async def test_event_creation_can_retry_a_blank_name() -> None:
         interaction.response.send_message.await_args.kwargs["view"],
         RetryModalView,
     )
+
+
+@pytest.mark.asyncio
+async def test_event_timezone_dropdown_supports_other_iana_timezones() -> None:
+    event = Event(SimpleNamespace(database=AsyncMock()))
+    draft = EventDraft(guild_id=123, creator_id=456, channel_id=789)
+    view = EventTimezoneView(event, draft)
+    view.timezone_select._values = ["other"]
+    open_modal = SimpleNamespace(
+        user=SimpleNamespace(id=456),
+        response=SimpleNamespace(send_modal=AsyncMock()),
+    )
+
+    await view.children[1].callback(open_modal)
+
+    timezone_modal = open_modal.response.send_modal.await_args.args[0]
+    assert isinstance(timezone_modal, EventTimezoneModal)
+    timezone_modal.timezone._value = "Pacific/Auckland"
+    submit = SimpleNamespace(
+        response=SimpleNamespace(send_message=AsyncMock()),
+    )
+    await timezone_modal.on_submit(submit)
+
+    continue_view = submit.response.send_message.await_args.kwargs["view"]
+    assert isinstance(continue_view, ContinueModalView)
+    assert draft.timezone == "Pacific/Auckland"
 
 
 @pytest.mark.asyncio

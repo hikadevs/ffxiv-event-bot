@@ -8,6 +8,81 @@ from xivbot.services.lodestone import (
 )
 
 
+class CharacterProfileView(discord.ui.View):
+    def __init__(
+        self,
+        user_id: int,
+        profile_embed: discord.Embed,
+        jobs_embed: discord.Embed,
+    ) -> None:
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.profile_embed = profile_embed
+        self.jobs_embed = jobs_embed
+
+    async def interaction_check(
+        self,
+        interaction: discord.Interaction,
+    ) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "Only the person who ran this command can use these buttons.",
+                ephemeral=True,
+            )
+            return False
+
+        return True
+
+    async def _show_page(
+        self,
+        interaction: discord.Interaction,
+        embed: discord.Embed,
+        selected_tab: str,
+    ) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.style = (
+                    discord.ButtonStyle.primary
+                    if item.label == selected_tab
+                    else discord.ButtonStyle.secondary
+                )
+
+        await interaction.response.edit_message(
+            embed=embed,
+            view=self,
+        )
+
+    @discord.ui.button(
+        label="Profile",
+        style=discord.ButtonStyle.primary,
+    )
+    async def profile_tab(
+        self,
+        interaction: discord.Interaction,
+        _button: discord.ui.Button,
+    ) -> None:
+        await self._show_page(
+            interaction,
+            self.profile_embed,
+            "Profile",
+        )
+
+    @discord.ui.button(
+        label="Jobs",
+        style=discord.ButtonStyle.secondary,
+    )
+    async def jobs_tab(
+        self,
+        interaction: discord.Interaction,
+        _button: discord.ui.Button,
+    ) -> None:
+        await self._show_page(
+            interaction,
+            self.jobs_embed,
+            "Jobs",
+        )
+
+
 class Character(
     commands.GroupCog,
     group_name="character",
@@ -216,6 +291,11 @@ class Character(
             profile = await lodestone.get_character_profile(
                 character["lodestone_id"]
             )
+
+            jobs = await lodestone.get_character_jobs(
+                character["lodestone_id"]
+            )
+
         except LodestoneError:
             await interaction.followup.send(
                 "I found your linked character, but I couldn't "
@@ -229,85 +309,105 @@ class Character(
             f"{profile.lodestone_id}/"
         )
 
-        embed = discord.Embed(
+        profile_embed = discord.Embed(
             title=profile.name,
             url=profile_url,
-            description="Linked Final Fantasy XIV character.",
-        )
-
-        embed.add_field(
-            name="World",
-            value=profile.world,
-            inline=True,
-        )
-
-        embed.add_field(
-            name="Data Center",
-            value=profile.data_center,
-            inline=True,
-        )
-
-        embed.add_field(
-            name="Lodestone ID",
-            value=str(profile.lodestone_id),
-            inline=False,
+            description=(
+                f"**{profile.world}** · {profile.data_center}"
+            ),
+            color=discord.Color.blurple(),
         )
 
         if profile.portrait_url is not None:
-            embed.set_thumbnail(
+            profile_embed.set_thumbnail(
                 url=profile.portrait_url
             )
 
-        embed.add_field(
-            name="Race",
-            value=profile.race,
-            inline=True,
-        )
-
-        embed.add_field(
-            name="Clan",
-            value=profile.clan,
-            inline=True,
-        )
-
-        embed.add_field(
-            name="Gender",
-            value=profile.gender,
-            inline=True,
-        )
-
-        embed.add_field(
-            name="Nameday",
-            value=profile.nameday,
-            inline=False,
-        )
-
-        embed.add_field(
-            name="Guardian",
-            value=profile.guardian,
-            inline=False,
-        )
+        profile_details = [
+            f"**Race:** {profile.race} · {profile.clan}",
+            f"**Gender:** {profile.gender}",
+            f"**Nameday:** {profile.nameday}",
+            f"**Guardian:** {profile.guardian}",
+        ]
 
         if profile.city_state is not None:
-            embed.add_field(
-                name="City-state",
-                value=profile.city_state,
-                inline=True,
+            profile_details.append(
+                f"**City-state:** {profile.city_state}"
             )
 
         if profile.grand_company is not None:
-            embed.add_field(
-                name="Grand Company",
-                value=profile.grand_company,
+            profile_details.append(
+                f"**Grand Company:** {profile.grand_company}"
+            )
+
+        profile_embed.add_field(
+            name="Character",
+            value="\n".join(profile_details),
+            inline=False,
+        )
+
+        jobs_embed = discord.Embed(
+            title=f"{profile.name} - Jobs",
+            url=profile_url,
+            description=(
+                f"**{profile.world}** · {profile.data_center}"
+            ),
+            color=discord.Color.blurple(),
+        )
+
+        started_jobs = [
+            job
+            for job in jobs
+            if job.level is not None
+        ]
+
+        categories = {
+            "Tank": [],
+            "Healer": [],
+            "Melee DPS": [],
+            "Physical Ranged DPS": [],
+            "Magical Ranged DPS": [],
+            "Limited Job": [],
+            "Crafter": [],
+            "Gatherer": [],
+            "Unknown": [],
+        }
+
+        for job in started_jobs:
+            categories.setdefault(job.category, []).append(job)
+
+        for category, category_jobs in categories.items():
+            if not category_jobs:
+                continue
+
+            job_lines = "\n".join(
+                f"- {job.name} (Lv. {job.level})"
+                for job in category_jobs
+            )
+            jobs_embed.add_field(
+                name=category,
+                value=job_lines,
                 inline=False,
             )
 
-        embed.set_footer(
-            text="Aetheryte Events"
+        if not started_jobs:
+            jobs_embed.description += (
+                "\n\nNo jobs with a level found for this character."
+            )
+
+        footer = f"Lodestone ID: {profile.lodestone_id} · Aetheryte Events"
+        profile_embed.set_footer(text=footer)
+        jobs_embed.set_footer(text=footer)
+
+        view = CharacterProfileView(
+            user_id=interaction.user.id,
+            profile_embed=profile_embed,
+            jobs_embed=jobs_embed,
         )
 
         await interaction.followup.send(
-            embed=embed,
+            embed=profile_embed,
+            view=view,
             ephemeral=True,
         )
 

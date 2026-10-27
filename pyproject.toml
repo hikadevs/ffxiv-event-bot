@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ffxiv-event-bot"
 version = "0.1.0"
 description = "A Discord bot for FFXIV character profiles, event signups, and raid scheduling."
+readme = "README.md"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -30,3 +31,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

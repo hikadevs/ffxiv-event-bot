@@ -52,6 +52,7 @@ class XIVEventBot(commands.Bot):
 
         await self.load_extension("xivbot.cogs.general")
         await self.load_extension("xivbot.cogs.character")
+        await self.load_extension("xivbot.cogs.event")
 
         test_guild = discord.Object(id=self.settings.test_guild_id)
 
@@ -89,7 +90,7 @@ class XIVEventBot(commands.Bot):
 
 # Added Error Handler to catch any errors that occur during command execution and log them for debugging purposes. This helps in identifying issues with the bot's commands and provides feedback to the user when an error occurs.
 
-    async def on_tree_error(
+    async def on_app_command_error(
         self,
         interaction: discord.Interaction,
         error: discord.app_commands.AppCommandError,

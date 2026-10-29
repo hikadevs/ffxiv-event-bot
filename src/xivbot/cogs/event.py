@@ -935,6 +935,11 @@ class Event(
                     channel = await self.bot.fetch_channel(channel_id)
                 message = await channel.fetch_message(message_id)
                 await message.delete()
+            except discord.NotFound:
+                logger.info(
+                    "Expired event post was already removed for event %s.",
+                    event["event_id"],
+                )
             except (discord.HTTPException, AttributeError, TypeError):
                 logger.warning(
                     "Could not delete expired event post for event %s.",

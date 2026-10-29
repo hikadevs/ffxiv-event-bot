@@ -60,9 +60,8 @@ time to propagate.
 
 - `/ping` checks the bot's latency.
 - `/help` shows the steps for linking a character and joining events.
-- `/character search name` searches Lodestone characters.
-- `/character link name` links the first Lodestone search result to your
-  Discord account.
+- `/character search name [realm]` searches Lodestone characters and can be narrowed to a world or data center.
+- `/character link name [realm] [lodestone_id]` links a specific Lodestone result to your Discord account, and can target a precise character by Lodestone ID.
 - `/character me` displays your linked character profile and jobs.
 - `/character unlink` removes your character link.
 - `/event create` walks you through an event's details, start time, and group

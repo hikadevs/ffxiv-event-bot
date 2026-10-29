@@ -28,6 +28,7 @@ class LodestoneClient:
     async def search_character(
         self,
         name: str,
+        realm: str | None = None,
     ) -> list[CharacterSearchResult]:
         query = urlencode(
             {
@@ -53,7 +54,18 @@ class LodestoneClient:
                 f"Failed to connect to Lodestone for search query '{name}'."
             ) from exc
 
-        return self._parse_search_results(html)
+        results = self._parse_search_results(html)
+        if realm is not None:
+            normalized_realm = realm.strip().casefold()
+            filtered = [
+                result
+                for result in results
+                if result.world.casefold() == normalized_realm
+                or result.data_center.casefold() == normalized_realm
+            ]
+            if filtered:
+                return filtered
+        return results
 
     async def get_character_profile(
         self,

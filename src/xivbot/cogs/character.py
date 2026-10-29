@@ -98,11 +98,13 @@ class Character(
     )
     @app_commands.describe(
         name="The character's full name.",
+        realm="Optional world or data center to narrow the results.",
     )
     async def search(
         self,
         interaction: discord.Interaction,
         name: str,
+        realm: str | None = None,
     ) -> None:
         await interaction.response.defer(
             thinking=True,
@@ -125,7 +127,7 @@ class Character(
         lodestone = LodestoneClient(session)
 
         try:
-            results = await lodestone.search_character(name)
+            results = await lodestone.search_character(name, realm=realm)
         except LodestoneError:
             await interaction.followup.send(
                 "An error occurred while searching for the character. Please try again later.",
@@ -134,8 +136,9 @@ class Character(
             return
 
         if not results:
+            scope = f" on {realm}" if realm else ""
             await interaction.followup.send(
-                f"No characters found for '{name}'.",
+                f"No characters found for '{name}'{scope}.",
                 ephemeral=True,
             )
             return
@@ -145,7 +148,8 @@ class Character(
         for result in results[:10]:
             lines.append(
                 f"**{result.name}** - "
-                f"{result.world} [{result.data_center}]"
+                f"{result.world} [{result.data_center}] "
+                f"(Lodestone ID: {result.lodestone_id})"
             )
 
         message = "\n".join(lines)
@@ -161,11 +165,15 @@ class Character(
     )
     @app_commands.describe(
         name="The character's full name.",
+        realm="Optional world or data center to narrow the match.",
+        lodestone_id="Optional Lodestone ID to select a specific character.",
     )
     async def link(
         self,
         interaction: discord.Interaction,
         name: str,
+        realm: str | None = None,
+        lodestone_id: int | None = None,
     ) -> None:
         await interaction.response.defer(
             thinking=True,
@@ -201,7 +209,7 @@ class Character(
         lodestone = LodestoneClient(session)
 
         try:
-            results = await lodestone.search_character(name)
+            results = await lodestone.search_character(name, realm=realm)
         except LodestoneError:
             await interaction.followup.send(
                 "An error occurred while searching for the character. Please try again later.",
@@ -210,13 +218,31 @@ class Character(
             return
 
         if not results:
+            scope = f" on {realm}" if realm else ""
             await interaction.followup.send(
-                f"No characters found for '{name}'.",
+                f"No characters found for '{name}'{scope}.",
                 ephemeral=True,
             )
             return
 
-        character = results[0]
+        if lodestone_id is not None:
+            character = next(
+                (
+                    result
+                    for result in results
+                    if result.lodestone_id == lodestone_id
+                ),
+                None,
+            )
+            if character is None:
+                await interaction.followup.send(
+                    f"Could not find Lodestone ID {lodestone_id} for '{name}'. "
+                    "Try a narrower search or provide a realm filter.",
+                    ephemeral=True,
+                )
+                return
+        else:
+            character = results[0]
 
         await database.save_character_link(
             discord_user_id=interaction.user.id,

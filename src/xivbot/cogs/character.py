@@ -266,7 +266,8 @@ class Character(
         if character is None:
             await interaction.followup.send(
                 "You do not have a linked FFXIV character yet. "
-                "Use `/character link` first.",
+                "Use `/character search <name>` and `/character link <name>` "
+                "to link your character before joining events.",
                 ephemeral=True,
             )
             return

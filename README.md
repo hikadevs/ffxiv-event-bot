@@ -59,6 +59,7 @@ time to propagate.
 ## Commands
 
 - `/ping` checks the bot's latency.
+- `/help` shows the steps for linking a character and joining events.
 - `/character search name` searches Lodestone characters.
 - `/character link name` links the first Lodestone search result to your
   Discord account.

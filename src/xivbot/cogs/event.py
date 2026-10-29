@@ -1260,7 +1260,9 @@ class Event(
         character = await database.get_character_link(interaction.user.id)
         if character is None:
             await interaction.followup.send(
-                "Link your FFXIV character first with `/character link`.",
+                "To join this event, first link your FFXIV character with "
+                "`/character search <name>` and `/character link <name>`. "
+                "Then try joining again.",
                 ephemeral=True,
             )
             return
@@ -1394,7 +1396,9 @@ class Event(
             character = await database.get_character_link(interaction.user.id)
         if character is None:
             await interaction.followup.send(
-                "Link your FFXIV character first with `/character link`.",
+                "To join this event, first link your FFXIV character with "
+                "`/character search <name>` and `/character link <name>`. "
+                "Then try joining again.",
                 ephemeral=True,
             )
             return

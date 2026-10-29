@@ -102,10 +102,18 @@ class Database:
                 character_name TEXT NOT NULL,
                 world TEXT NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                reminder_sent_at TIMESTAMPTZ,
                 PRIMARY KEY (event_id, discord_user_id),
                 FOREIGN KEY (event_id, role)
                     REFERENCES event_roles(event_id, role)
             );
+            """
+        )
+
+        await self.pool.execute(
+            """
+            ALTER TABLE event_signups
+            ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
             """
         )
 
@@ -356,6 +364,49 @@ class Database:
             grace_days,
         )
         return len(expired_events)
+
+    async def get_upcoming_event_reminders(
+        self,
+        lead_time_minutes: int = 60,
+    ) -> list[asyncpg.Record]:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        return await self.pool.fetch(
+            """
+            SELECT
+                es.event_id,
+                es.discord_user_id,
+                e.title,
+                e.scheduled_at
+            FROM event_signups es
+            JOIN events e ON e.event_id = es.event_id
+            WHERE e.scheduled_at > NOW()
+                AND e.scheduled_at <= NOW() + $1 * INTERVAL '1 minute'
+                AND es.reminder_sent_at IS NULL;
+            """,
+            lead_time_minutes,
+        )
+
+    async def mark_signup_reminder_sent(
+        self,
+        event_id: int,
+        discord_user_id: int,
+    ) -> None:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        await self.pool.execute(
+            """
+            UPDATE event_signups
+            SET reminder_sent_at = NOW()
+            WHERE event_id = $1
+                AND discord_user_id = $2
+                AND reminder_sent_at IS NULL;
+            """,
+            event_id,
+            discord_user_id,
+        )
 
     async def get_event_roles(
         self,

@@ -39,6 +39,7 @@ async def test_create_tables_creates_events_table() -> None:
     )
     assert any("ADD COLUMN IF NOT EXISTS post_channel_id" in sql for sql in executed_sql)
     assert any("ADD COLUMN IF NOT EXISTS post_message_id" in sql for sql in executed_sql)
+    assert any("ADD COLUMN IF NOT EXISTS reminder_sent_at" in sql for sql in executed_sql)
 
 
 @pytest.mark.asyncio

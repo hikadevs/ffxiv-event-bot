@@ -826,6 +826,7 @@ class Event(
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self._expired_event_cleanup_task: asyncio.Task[None] | None = None
+        self._event_reminder_task: asyncio.Task[None] | None = None
 
     async def cog_load(self) -> None:
         database = getattr(self.bot, "database", None)
@@ -833,6 +834,7 @@ class Event(
             return
 
         await self._prune_expired_events()
+        await self._send_event_reminders()
 
         for event in await database.get_published_events():
             self.bot.add_view(
@@ -844,11 +846,18 @@ class Event(
             self._expired_event_cleanup_task = asyncio.create_task(
                 self._expired_event_cleanup_loop()
             )
+        if self._event_reminder_task is None or self._event_reminder_task.done():
+            self._event_reminder_task = asyncio.create_task(
+                self._event_reminder_loop()
+            )
 
     def cog_unload(self) -> None:
         if self._expired_event_cleanup_task is not None:
             self._expired_event_cleanup_task.cancel()
             self._expired_event_cleanup_task = None
+        if self._event_reminder_task is not None:
+            self._event_reminder_task.cancel()
+            self._event_reminder_task = None
 
     async def _expired_event_cleanup_loop(self) -> None:
         while True:
@@ -859,6 +868,54 @@ class Event(
                 raise
             except Exception:
                 logger.exception("Failed to prune expired events.")
+
+    async def _event_reminder_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(60)
+                await self._send_event_reminders()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Failed to send event reminders.")
+
+    async def _send_event_reminders(self) -> None:
+        database = getattr(self.bot, "database", None)
+        if database is None:
+            return
+
+        for reminder in await database.get_upcoming_event_reminders():
+            event_id = reminder["event_id"]
+            discord_user_id = reminder["discord_user_id"]
+            title = str(reminder["title"])
+            scheduled_at = reminder["scheduled_at"]
+            if not isinstance(scheduled_at, datetime):
+                continue
+
+            try:
+                user = self.bot.get_user(discord_user_id)
+                if user is None:
+                    user = await self.bot.fetch_user(discord_user_id)
+                if user is None:
+                    continue
+
+                await user.send(
+                    f"Reminder: your signup for **{title}** is coming up "
+                    f"in about an hour on <t:{int(scheduled_at.timestamp())}:F>."
+                )
+                await database.mark_signup_reminder_sent(event_id, discord_user_id)
+            except discord.HTTPException as error:
+                logger.warning(
+                    "Could not send event reminder for event %s to user %s.",
+                    event_id,
+                    discord_user_id,
+                    exc_info=error,
+                )
+            except Exception:
+                logger.exception(
+                    "Unexpected error while sending reminder for event %s.",
+                    event_id,
+                )
 
     async def _prune_expired_events(self) -> None:
         database = getattr(self.bot, "database", None)

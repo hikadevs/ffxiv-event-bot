@@ -362,6 +362,31 @@ def test_event_post_controls_have_persistent_event_specific_ids() -> None:
 
 
 @pytest.mark.asyncio
+async def test_event_reminder_sends_dm_for_upcoming_signup() -> None:
+    database = AsyncMock()
+    database.get_upcoming_event_reminders.return_value = [
+        {
+            "event_id": 7,
+            "discord_user_id": 456,
+            "title": "Savage",
+            "scheduled_at": datetime(2026, 10, 31, 0, 0, tzinfo=timezone.utc),
+        },
+    ]
+    user = SimpleNamespace(send=AsyncMock())
+    bot = SimpleNamespace(
+        database=database,
+        get_user=Mock(return_value=user),
+        fetch_user=AsyncMock(return_value=user),
+    )
+    event = Event(bot)
+
+    await event._send_event_reminders()
+
+    user.send.assert_awaited_once()
+    database.mark_signup_reminder_sent.assert_awaited_once_with(7, 456)
+
+
+@pytest.mark.asyncio
 async def test_event_join_button_offers_available_roles_and_combat_jobs() -> None:
     database = AsyncMock()
     database.get_event.return_value = {

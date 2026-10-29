@@ -31,12 +31,25 @@ commands integration for that server.
    - `DISCORD_TOKEN` to the bot token from the Discord Developer Portal.
    - `TEST_GUILD_ID` to the ID of the server where commands should be synced.
    - `DATABASE_URL` to the PostgreSQL connection URL.
+   - `PORT` (optional for local runs; Railway sets this automatically).
 
 3. Start the bot:
 
    ```sh
    xivbot
    ```
+
+## Railway deployment
+
+This project is ready for Railway as a Python service. Add the same environment
+variables above in the Railway project settings, then set the start command to:
+
+```sh
+python -m xivbot
+```
+
+The bot exposes a lightweight `/healthz` endpoint on the Railway-assigned `PORT`
+so the service stays healthy while the Discord bot runs in the same process.
 
 The database tables are created automatically when the bot starts. Slash
 commands are synced to `TEST_GUILD_ID`.

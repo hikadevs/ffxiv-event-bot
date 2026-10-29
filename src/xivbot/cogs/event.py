@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone as dt_timezone
@@ -709,12 +710,14 @@ class EventSignupView(EventWizardView):
         character: asyncpg.Record | dict[str, object],
         jobs: list[CharacterJob],
         role_options: list[discord.SelectOption],
+        minimum_level: int,
     ) -> None:
         super().__init__(user_id)
         self.event_cog = event_cog
         self.event_id = event_id
         self.character = character
         self.jobs = jobs
+        self.minimum_level = minimum_level
 
         self.role_select = discord.ui.Select(
             placeholder="Choose a role",
@@ -729,15 +732,7 @@ class EventSignupView(EventWizardView):
             placeholder="Choose a job",
             min_values=1,
             max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=f"{job.name} (Lv. {job.level})"[:100],
-                    value=job.name,
-                    description=job.category[:100],
-                )
-                for job in jobs
-                if job.level is not None
-            ],
+            options=self._get_job_options(),
         )
         self.job_select.callback = self._selection_changed
         self.add_item(self.job_select)
@@ -749,11 +744,54 @@ class EventSignupView(EventWizardView):
         join.callback = self._submit_signup
         self.add_item(join)
 
+    def _matches_role(self, job: CharacterJob, role: str) -> bool:
+        if role == "DPS":
+            return job.category in DPS_CATEGORIES
+        return job.category == role
+
+    def _get_job_options(self, role: str | None = None) -> list[discord.SelectOption]:
+        filtered_jobs = [
+            job
+            for job in self.jobs
+            if job.level is not None
+            and job.level >= self.minimum_level
+            and (role is None or self._matches_role(job, role))
+        ]
+        return [
+            discord.SelectOption(
+                label=f"{job.name} (Lv. {job.level})"[:100],
+                value=job.name,
+                description=job.category[:100],
+            )
+            for job in filtered_jobs
+        ]
+
     async def _selection_changed(
         self,
         interaction: discord.Interaction,
     ) -> None:
-        await interaction.response.defer()
+        role = self.role_select.values[0] if self.role_select.values else None
+        if role is not None:
+            self.role_select.placeholder = f"Role: {role}"
+        else:
+            self.role_select.placeholder = "Choose a role"
+
+        self.job_select.options = self._get_job_options(role)
+        if self.job_select.values:
+            selected_job = self.job_select.values[0]
+            self.job_select.placeholder = f"Job: {selected_job}"
+        elif role is not None and self.job_select.options:
+            self.job_select.placeholder = "Choose a job"
+        else:
+            self.job_select.placeholder = "Choose a job"
+
+        if not self.job_select.options:
+            await interaction.response.send_message(
+                "No jobs match that role at this event's minimum level requirement.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.edit_message(view=self)
 
     async def _submit_signup(
         self,
@@ -765,6 +803,9 @@ class EventSignupView(EventWizardView):
                 ephemeral=True,
             )
             return
+
+        self.role_select.placeholder = f"Role: {self.role_select.values[0]}"
+        self.job_select.placeholder = f"Job: {self.job_select.values[0]}"
 
         await self.event_cog._submit_signup(
             interaction,
@@ -784,11 +825,14 @@ class Event(
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self._expired_event_cleanup_task: asyncio.Task[None] | None = None
 
     async def cog_load(self) -> None:
         database = getattr(self.bot, "database", None)
         if database is None:
             return
+
+        await self._prune_expired_events()
 
         for event in await database.get_published_events():
             self.bot.add_view(
@@ -796,8 +840,108 @@ class Event(
                 message_id=event["post_message_id"],
             )
 
+        if self._expired_event_cleanup_task is None or self._expired_event_cleanup_task.done():
+            self._expired_event_cleanup_task = asyncio.create_task(
+                self._expired_event_cleanup_loop()
+            )
+
+    def cog_unload(self) -> None:
+        if self._expired_event_cleanup_task is not None:
+            self._expired_event_cleanup_task.cancel()
+            self._expired_event_cleanup_task = None
+
+    async def _expired_event_cleanup_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(3600)
+                await self._prune_expired_events()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Failed to prune expired events.")
+
+    async def _prune_expired_events(self) -> None:
+        database = getattr(self.bot, "database", None)
+        if database is None:
+            return
+
+        expired_events = await database.get_expired_events(3.0)
+        for event in expired_events:
+            channel_id = event.get("post_channel_id")
+            message_id = event.get("post_message_id")
+            if channel_id is None or message_id is None:
+                continue
+
+            try:
+                channel = self.bot.get_channel(channel_id)
+                if channel is None:
+                    channel = await self.bot.fetch_channel(channel_id)
+                message = await channel.fetch_message(message_id)
+                await message.delete()
+            except (discord.HTTPException, AttributeError, TypeError):
+                logger.warning(
+                    "Could not delete expired event post for event %s.",
+                    event["event_id"],
+                    exc_info=True,
+                )
+
+        await database.delete_expired_events(3.0)
+
     @staticmethod
-    def _make_event_embed(
+    def _make_event_summary_embed(
+        event: asyncpg.Record | dict[str, object],
+        roles: list[asyncpg.Record] | list[dict[str, object]],
+        signups: list[asyncpg.Record] | list[dict[str, object]],
+    ) -> discord.Embed:
+        scheduled_at = event["scheduled_at"]
+        if not isinstance(scheduled_at, datetime):
+            raise TypeError("Event schedule must be a datetime.")
+
+        title = discord.utils.escape_markdown(str(event["title"]))
+        embed = discord.Embed(
+            title=f"Event #{event['event_id']} — {title}",
+            description=(
+                f"**Starts:** <t:{int(scheduled_at.timestamp())}:F>\n"
+                f"**Minimum job level:** {event['min_job_level']}"
+            ),
+            color=discord.Color.blurple(),
+        )
+
+        description = event["description"]
+        if description:
+            embed.add_field(
+                name="Description",
+                value=discord.utils.escape_markdown(str(description))[:1024],
+                inline=False,
+            )
+
+        role_lines = []
+        for role in roles:
+            role_name = str(role["role"])
+            capacity = int(role["slots"])
+            members = [
+                signup
+                for signup in signups
+                if signup["role"] == role_name
+            ]
+            remaining = max(0, capacity - len(members))
+            role_lines.append(
+                f"{role_name}: {remaining} open / {capacity} total"
+                if capacity
+                else f"{role_name}: not recruiting"
+            )
+
+        if role_lines:
+            embed.add_field(
+                name="Slots",
+                value="\n".join(role_lines),
+                inline=False,
+            )
+
+        return embed
+
+    @staticmethod
+    def _make_event_details_embed(
         event: asyncpg.Record | dict[str, object],
         roles: list[asyncpg.Record] | list[dict[str, object]],
         signups: list[asyncpg.Record] | list[dict[str, object]],
@@ -888,6 +1032,14 @@ class Event(
 
         return embed
 
+    @staticmethod
+    def _make_event_embed(
+        event: asyncpg.Record | dict[str, object],
+        roles: list[asyncpg.Record] | list[dict[str, object]],
+        signups: list[asyncpg.Record] | list[dict[str, object]],
+    ) -> discord.Embed:
+        return Event._make_event_summary_embed(event, roles, signups)
+
     async def _get_event_embed(
         self,
         event_id: int,
@@ -901,7 +1053,7 @@ class Event(
         if event is None or event["guild_id"] != guild_id:
             return None, None
 
-        embed = self._make_event_embed(
+        embed = self._make_event_details_embed(
             event,
             await database.get_event_roles(event_id),
             await database.get_event_signups(event_id),
@@ -917,7 +1069,7 @@ class Event(
         if event is None:
             raise RuntimeError(f"Created event {event_id} could not be found.")
 
-        return self._make_event_embed(
+        return self._make_event_summary_embed(
             event,
             await database.get_event_roles(event_id),
             await database.get_event_signups(event_id),
@@ -1097,6 +1249,7 @@ class Event(
                 character,
                 leveled_jobs,
                 role_options,
+                minimum_level,
             ),
             ephemeral=True,
         )
@@ -1141,6 +1294,36 @@ class Event(
         ):
             await interaction.followup.send(
                 f"This event has no {role} slots.",
+                ephemeral=True,
+            )
+            return
+
+        signups = await database.get_event_signups(event_id)
+        current_signup = next(
+            (
+                signup
+                for signup in signups
+                if signup["discord_user_id"] == interaction.user.id
+            ),
+            None,
+        )
+        role_capacity = next(
+            (
+                entry["slots"]
+                for entry in role_slots
+                if entry["role"] == role
+            ),
+            0,
+        )
+        registered_for_role = sum(
+            signup["role"] == role
+            for signup in signups
+        )
+        if current_signup is not None and current_signup["role"] == role:
+            registered_for_role -= 1
+        if role_capacity > 0 and registered_for_role >= role_capacity:
+            await interaction.followup.send(
+                f"All {role} slots for this event are full.",
                 ephemeral=True,
             )
             return

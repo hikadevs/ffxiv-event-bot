@@ -321,6 +321,42 @@ class Database:
             """
         )
 
+    async def get_expired_events(
+        self,
+        grace_days: float = 3.0,
+    ) -> list[asyncpg.Record]:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        return await self.pool.fetch(
+            """
+            SELECT event_id, post_channel_id, post_message_id
+            FROM events
+            WHERE scheduled_at < NOW() - $1 * INTERVAL '1 day';
+            """,
+            grace_days,
+        )
+
+    async def delete_expired_events(
+        self,
+        grace_days: float = 3.0,
+    ) -> int:
+        if self.pool is None:
+            raise RuntimeError("Database is not connected.")
+
+        expired_events = await self.get_expired_events(grace_days)
+        if not expired_events:
+            return 0
+
+        await self.pool.execute(
+            """
+            DELETE FROM events
+            WHERE scheduled_at < NOW() - $1 * INTERVAL '1 day';
+            """,
+            grace_days,
+        )
+        return len(expired_events)
+
     async def get_event_roles(
         self,
         event_id: int,

@@ -230,6 +230,31 @@ async def test_confirmation_creates_event_after_review() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_expired_events_are_pruned_after_three_days() -> None:
+    database = AsyncMock()
+    database.get_expired_events.return_value = [
+        {"event_id": 7, "post_channel_id": 123, "post_message_id": 456},
+    ]
+    channel = SimpleNamespace(
+        fetch_message=AsyncMock(
+            return_value=SimpleNamespace(delete=AsyncMock()),
+        )
+    )
+    bot = SimpleNamespace(
+        database=database,
+        get_channel=Mock(return_value=channel),
+        fetch_channel=AsyncMock(return_value=channel),
+    )
+    event = Event(bot)
+
+    await event._prune_expired_events()
+
+    channel.fetch_message.assert_awaited_once_with(456)
+    channel.fetch_message.return_value.delete.assert_awaited_once()
+    database.delete_expired_events.assert_awaited_once_with(3.0)
+
+
 def test_parse_event_time_converts_local_time_to_utc() -> None:
     event_time = _parse_event_time("2026-10-30 20:00", "America/New_York")
 
@@ -260,7 +285,7 @@ def test_parse_event_time_rejects_invalid_daylight_saving_times(
         _parse_event_time(scheduled_at, "America/New_York")
 
 
-def test_event_post_embed_shows_roster_and_remaining_slots() -> None:
+def test_event_post_embed_summarizes_slots_without_roster_details() -> None:
     embed = Event._make_event_embed(
         {
             "event_id": 7,
@@ -288,13 +313,41 @@ def test_event_post_embed_shows_roster_and_remaining_slots() -> None:
 
     fields = {field.name: field.value for field in embed.fields}
     assert embed.title == "Event #7 — Savage"
-    assert "Bring food" in fields["Details"]
-    assert "1/2 registered" in fields["Tank — 1 slot left"]
-    assert "<@456>" in fields["Tank signups"]
-    assert "Test Character" in fields["Tank signups"]
-    assert "Paladin Lv. 100" in fields["Tank signups"]
-    assert "0/1 registered" in fields["Healer — 1 slot left"]
-    assert "Not recruiting" in fields["DPS — 0 slots left"]
+    assert "Bring food" in fields["Description"]
+    assert "Tank: 1 open / 2 total" in fields["Slots"]
+    assert "Healer: 1 open / 1 total" in fields["Slots"]
+    assert "DPS: not recruiting" in fields["Slots"]
+    assert [field.name for field in embed.fields] == [
+        "Description",
+        "Slots",
+    ]
+
+    details = Event._make_event_details_embed(
+        {
+            "event_id": 7,
+            "title": "Savage",
+            "scheduled_at": datetime(2026, 10, 31, 0, 0, tzinfo=timezone.utc),
+            "description": "Bring food",
+            "min_job_level": 90,
+        },
+        [
+            {"role": "Tank", "slots": 2},
+            {"role": "Healer", "slots": 1},
+            {"role": "DPS", "slots": 0},
+        ],
+        [
+            {
+                "discord_user_id": 456,
+                "role": "Tank",
+                "job": "Paladin",
+                "job_level": 100,
+                "character_name": "Test Character",
+                "world": "Gilgamesh",
+            },
+        ],
+    )
+    assert "<@456>" in details.fields[2].value
+    assert "Paladin Lv. 100" in details.fields[2].value
 
 
 def test_event_post_controls_have_persistent_event_specific_ids() -> None:
@@ -358,6 +411,79 @@ async def test_event_join_button_offers_available_roles_and_combat_jobs() -> Non
         "Paladin",
         "Black Mage",
     ]
+
+    view.role_select._values = ["Tank"]
+    role_interaction = SimpleNamespace(
+        response=SimpleNamespace(
+            edit_message=AsyncMock(),
+            send_message=AsyncMock(),
+        )
+    )
+    await view._selection_changed(role_interaction)
+
+    assert [option.value for option in view.job_select.options] == [
+        "Paladin",
+    ]
+    assert view.role_select.placeholder == "Role: Tank"
+    role_interaction.response.edit_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_join_event_rejects_filled_role_before_signup() -> None:
+    database = AsyncMock()
+    database.get_event.return_value = {
+        "guild_id": 123,
+        "min_job_level": 90,
+    }
+    database.get_event_roles.return_value = [
+        {"role": "Tank", "slots": 1},
+    ]
+    database.get_event_signups.return_value = [
+        {
+            "discord_user_id": 999,
+            "role": "Tank",
+            "job": "Paladin",
+            "job_level": 100,
+            "character_name": "Other Tank",
+            "world": "Gilgamesh",
+        },
+    ]
+    database.get_character_link.return_value = {
+        "lodestone_id": 789,
+        "character_name": "Test Character",
+        "world": "Gilgamesh",
+    }
+    bot = SimpleNamespace(
+        database=database,
+        html_session=object(),
+    )
+    event = Event(bot)
+    interaction = SimpleNamespace(
+        guild_id=123,
+        user=SimpleNamespace(id=456),
+        response=SimpleNamespace(defer=AsyncMock()),
+        followup=SimpleNamespace(send=AsyncMock()),
+    )
+
+    with patch(
+        "xivbot.cogs.event.LodestoneClient.get_character_jobs",
+        new=AsyncMock(
+            return_value=[CharacterJob("Paladin", 100, "Tank")],
+        ),
+    ):
+        await Event.join.callback(
+            event,
+            interaction,
+            7,
+            SimpleNamespace(value="Tank"),
+            "Paladin",
+        )
+
+    database.join_event.assert_not_awaited()
+    interaction.followup.send.assert_awaited_once_with(
+        "All Tank slots for this event are full.",
+        ephemeral=True,
+    )
 
 
 @pytest.mark.asyncio

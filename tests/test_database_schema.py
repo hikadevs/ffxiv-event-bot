@@ -141,3 +141,19 @@ async def test_get_published_events_returns_saved_message_ids() -> None:
     await database.get_published_events()
 
     assert "WHERE post_message_id IS NOT NULL" in pool.fetch.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_delete_expired_events_deletes_events_after_grace_period() -> None:
+    database = Database("postgresql://unused")
+    pool = AsyncMock()
+    pool.fetch.return_value = [
+        {"event_id": 42, "post_channel_id": 123, "post_message_id": 456},
+    ]
+    database.pool = pool
+
+    count = await database.delete_expired_events(3.0)
+
+    assert count == 1
+    assert "WHERE scheduled_at < NOW() - $1 * INTERVAL '1 day'" in pool.fetch.await_args.args[0]
+    assert pool.execute.await_args.args[1] == 3.0

@@ -29,7 +29,7 @@ commands integration for that server.
 
 2. Copy `.env.example` to `.env` and set:
    - `DISCORD_TOKEN` to the bot token from the Discord Developer Portal.
-   - `TEST_GUILD_ID` to the ID of the server where commands should be synced.
+   - `TEST_GUILD_ID` to the ID of the server where commands should be synced immediately for testing.
    - `DATABASE_URL` to the PostgreSQL connection URL.
    - `PORT` (optional for local runs; Railway sets this automatically).
 
@@ -52,7 +52,9 @@ The bot exposes a lightweight `/healthz` endpoint on the Railway-assigned `PORT`
 so the service stays healthy while the Discord bot runs in the same process.
 
 The database tables are created automatically when the bot starts. Slash
-commands are synced to `TEST_GUILD_ID`.
+commands are synced to `TEST_GUILD_ID` for immediate testing and are also
+registered globally for other Discord servers. Global command changes may take
+time to propagate.
 
 ## Commands
 

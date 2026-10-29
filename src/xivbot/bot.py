@@ -76,6 +76,15 @@ class XIVEventBot(commands.Bot):
             self.settings.test_guild_id,
         )
 
+        # Guild commands appear immediately in the test server; global commands
+        # make the same slash commands available in every other server.
+        global_synced = await self.tree.sync()
+        logger.info(
+            "Globally synced %s top-level command(s): %s",
+            len(global_synced),
+            [command.name for command in global_synced],
+        )
+
 #async function can perform operations that take time to complete, such as network requests or database queries. Without freezing the entire program.
 #on_ready is an event handler that sends a ready message when client is logged in and ready to use. It is called once after the bot has successfully connected to Discord and is ready to start receiving events.
     async def on_ready(self) -> None:
